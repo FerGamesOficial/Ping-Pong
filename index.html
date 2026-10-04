@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<title>Neon Pong</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%23000'/%3E%3Cpath d='M50 8v84' stroke='%23333' stroke-width='3' stroke-dasharray='8 6'/%3E%3Crect x='10' y='28' width='8' height='36' rx='2' fill='%230f0'/%3E%3Crect x='82' y='40' width='8' height='36' rx='2' fill='%23f0f'/%3E%3Ccircle cx='58' cy='48' r='7' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23000'/%3E%3Crect x='10' y='28' width='8' height='36' rx='2' fill='%230f0'/%3E%3Crect x='82' y='40' width='8' height='36' rx='2' fill='%23f0f'/%3E%3Ccircle cx='58' cy='48' r='7' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;padding:0;background:#050505;color:#fff;font-family:'Courier New',monospace;display:flex;justify-content:center;align-items:center;height:100vh;height:100dvh;overflow:hidden;touch-action:none}
+#game-container{position:relative;width:min(100%,800px,calc(100vh * 4 / 3));width:min(100%,800px,calc(100dvh * 4 / 3));aspect-ratio:4/3;border:4px solid #333;border-radius:10px;overflow:hidden;background:#000;box-shadow:0 0 20px #000}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.scanlines{position:absolute;inset:0;background:linear-gradient(to bottom,transparent 50%,rgba(0,0,0,.1) 50%);background-size:100% 4px;pointer-events:none;z-index:5}
+.ui-layer{position:absolute;inset:0;background:rgba(0,0,0,.9);display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:100;visibility:hidden;opacity:0;transition:opacity .3s}
+.ui-layer.active{visibility:visible;opacity:1}
+.score-board{position:absolute;top:2.5%;width:100%;display:flex;justify-content:space-between;padding:0 5%;font-size:clamp(26px,5vw,40px);font-weight:bold;z-index:10;pointer-events:none}
+.score-board span:first-child{color:#0f0}
+.score-board span:last-child{color:#f0f}
+h1{font-size:clamp(30px,6vw,48px);color:#0f0;text-shadow:0 0 15px #0f0;margin:0 0 20px;text-align:center}
+.menu-btn{background:transparent;color:#fff;border:2px solid #0f0;padding:12px 25px;font-size:clamp(15px,2.4vw,18px);margin:8px;cursor:pointer;font-family:inherit;text-transform:uppercase;font-weight:bold;border-radius:5px;min-width:200px}
+.menu-btn:hover,.menu-btn:focus-visible{background:#0f0;color:#000;outline:none}
+.difficulty-select{display:flex;background:#222;padding:5px;border-radius:25px;margin-bottom:25px;border:1px solid #444}
+.diff-btn{padding:8px 20px;border:0;background:transparent;color:#777;cursor:pointer;font-weight:bold;border-radius:20px;font-family:inherit}
+.diff-btn.active{background:#0f0;color:#000}
+.controls-hint{margin-top:20px;color:#888;font-size:12px;text-align:center;line-height:1.5}
+.controls-hint p{margin:4px 0}
+.hint-key{color:#fff;font-weight:bold;border:1px solid #555;padding:2px 6px;border-radius:4px;background:#222}
+@media(max-width:600px){.menu-btn{min-width:180px;padding:10px 18px;margin:5px}.controls-hint{margin-top:10px}}
+</style>
+</head>
+<body>
+<div id="game-container">
+  <canvas id="pongCanvas" width="800" height="600"></canvas>
+  <div class="scanlines"></div>
+  <div class="score-board"><span id="score-left">0</span><span id="score-right">0</span></div>
+
+  <div id="menu-screen" class="ui-layer active">
+    <h1>NEON PONG</h1>
+    <div class="difficulty-select">
+      <button type="button" class="diff-btn active" id="btn-easy">Fácil</button>
+      <button type="button" class="diff-btn" id="btn-hard">Difícil</button>
+    </div>
+    <button type="button" class="menu-btn" id="btn-one">1 Jugador (vs CPU)</button>
+    <button type="button" class="menu-btn" id="btn-two">2 Jugadores (Local)</button>
+    <div class="controls-hint">
+      <p><span class="hint-key">PC:</span> <b>W/S</b> (Izq) | <b>↑/↓</b> (Der; en 1 jugador también mueven tu pala)</p>
+      <p><span class="hint-key">Móvil:</span> toca y arrastra (1 jugador: toda la pantalla; 2 jugadores: cada mitad).</p>
+    </div>
+  </div>
+
+  <div id="game-over-screen" class="ui-layer">
+    <h1 id="winner-text">GANADOR</h1>
+    <button type="button" class="menu-btn" id="btn-menu">MENÚ PRINCIPAL</button>
+    <button type="button" class="menu-btn" id="btn-restart">REINTENTAR</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const canvas = $('pongCanvas'), ctx = canvas.getContext('2d'), container = $('game-container');
+
+// Tamaño lógico fijo: el juego se comporta igual en cualquier pantalla y solo se escala el dibujo
+const W = 800, H = 600, WIN_SCORE = 7, MAX_SPEED = 15, SERVE_DELAY = 0.8;
+let gameRunning = false, mode = 1, difficulty = 'easy', animationId, lastTime = 0, particles = [], serveDelay = 0;
+
+const ball = { x: 0, y: 0, radius: 8, speed: 6, velocityX: 0, velocityY: 0 };
+const paddleWidth = 12, paddleHeight = 100;
+const player1 = { x: 10, y: 0, width: paddleWidth, height: paddleHeight, color: '#0f0', score: 0, speed: 8 };
+const player2 = { x: W - 10 - paddleWidth, y: 0, width: paddleWidth, height: paddleHeight, color: '#f0f', score: 0, speed: 8 };
+const keys = {};
+const touches = { 1: { active: false, y: 0 }, 2: { active: false, y: 0 } };
+
+const ease = (f, k) => 1 - Math.pow(1 - f, k);      // suavizado independiente de los fps
+const clampY = y => Math.max(0, Math.min(H - paddleHeight, y));
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), w = container.clientWidth;
+  canvas.width = Math.round(w * dpr); canvas.height = Math.round(w * dpr * H / W);
+  ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+  draw();
+}
+addEventListener('resize', resize);
+
+addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  keys[k] = true;
+  if (k === ' ' || k.startsWith('arrow')) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+addEventListener('blur', () => { for (const k in keys) keys[k] = false; }); // evita teclas "pegadas"
+
+// Cada evento táctil reconstruye el estado a partir de los dedos que siguen en pantalla
+function syncTouches(e) {
+  e.preventDefault();
+  touches[1].active = touches[2].active = false;
+  const rect = canvas.getBoundingClientRect();
+  for (const t of e.touches) {
+    const x = t.clientX - rect.left, y = (t.clientY - rect.top) * (H / rect.height);
+    const side = mode === 1 ? 1 : (x < rect.width / 2 ? 1 : 2);
+    touches[side] = { active: true, y };
+  }
+}
+['touchstart', 'touchmove', 'touchend', 'touchcancel'].forEach(ev => canvas.addEventListener(ev, syncTouches, { passive: false }));
+
+function updateScore() { $('score-left').textContent = player1.score; $('score-right').textContent = player2.score; }
+
+function initGame() {
+  player1.score = player2.score = 0;
+  player1.y = player2.y = H / 2 - paddleHeight / 2;
+  touches[1].active = touches[2].active = false;
+  updateScore(); resetBall(); particles = [];
+}
+
+function resetBall() {
+  ball.x = W / 2; ball.y = H / 2; ball.speed = 6;
+  const dx = Math.random() < .5 ? -1 : 1, dy = (Math.random() < .5 ? -1 : 1) * (Math.random() * .5 + .5);
+  ball.velocityX = dx * ball.speed; ball.velocityY = dy * ball.speed;
+  serveDelay = SERVE_DELAY;   // pausa breve antes del saque
+}
+
+function createExplosion(x, y, color) {
+  for (let i = 0; i < 15; i++) particles.push({ x, y, vx: (Math.random() - .5) * 8, vy: (Math.random() - .5) * 8, life: 1, color });
+}
+
+function collision(b, p) {
+  return b.x + b.radius > p.x && b.x - b.radius < p.x + p.width && b.y + b.radius > p.y && b.y - b.radius < p.y + p.height;
+}
+
+function moveCPU(k) {
+  const target = ball.y - paddleHeight / 2;
+  if (difficulty === 'easy') {
+    if (ball.velocityX > 0) {
+      if (player2.y < target - 10) player2.y += 4 * k; else if (player2.y > target + 10) player2.y -= 4 * k;
+    } else {
+      const center = H / 2 - paddleHeight / 2;
+      if (player2.y < center) player2.y += 2 * k; else if (player2.y > center) player2.y -= 2 * k;
+    }
+  } else {
+    // Difícil: sigue la pelota, pero con velocidad máxima limitada (antes podía alcanzar cualquier tiro)
+    const step = (target - player2.y) * ease(.12, k), max = 9 * k;
+    player2.y += Math.max(-max, Math.min(max, step));
+  }
+}
+
+function stepBall(mx, my) {
+  ball.x += mx; ball.y += my;
+
+  if (ball.y - ball.radius < 0 || ball.y + ball.radius > H) {
+    ball.velocityY = -ball.velocityY;
+    ball.y = Math.max(ball.radius, Math.min(H - ball.radius, ball.y));
+    createExplosion(ball.x, ball.y, '#fff');
+  }
+
+  const p = ball.x < W / 2 ? player1 : player2;
+  const towards = (p === player1 && ball.velocityX < 0) || (p === player2 && ball.velocityX > 0);
+  if (towards && collision(ball, p)) {
+    const point = (ball.y - (p.y + paddleHeight / 2)) / (paddleHeight / 2);
+    const angle = Math.PI / 4 * Math.max(-1, Math.min(1, point)), direction = p === player1 ? 1 : -1;
+    ball.x = direction === 1 ? p.x + p.width + ball.radius : p.x - ball.radius;
+    ball.speed = Math.min(MAX_SPEED, ball.speed + .3);
+    ball.velocityX = direction * ball.speed * Math.cos(angle);
+    ball.velocityY = ball.speed * Math.sin(angle);
+    createExplosion(ball.x, ball.y, p.color);
+  }
+
+  if (ball.x - ball.radius < 0) { player2.score++; updateScore(); checkWin(); if (gameRunning) resetBall(); return true; }
+  if (ball.x + ball.radius > W) { player1.score++; updateScore(); checkWin(); if (gameRunning) resetBall(); return true; }
+  return false;
+}
+
+function update(dt) {
+  if (!gameRunning) return;
+  const k = dt * 60, move = player1.speed * k;
+
+  if (keys.w || (mode === 1 && keys.arrowup)) player1.y -= move;
+  if (keys.s || (mode === 1 && keys.arrowdown)) player1.y += move;
+  if (touches[1].active) player1.y += (touches[1].y - paddleHeight / 2 - player1.y) * ease(.2, k);
+
+  if (mode === 2) {
+    if (keys.arrowup) player2.y -= move;
+    if (keys.arrowdown) player2.y += move;
+    if (touches[2].active) player2.y += (touches[2].y - paddleHeight / 2 - player2.y) * ease(.2, k);
+  } else if (serveDelay <= 0) moveCPU(k);
+
+  player1.y = clampY(player1.y); player2.y = clampY(player2.y);
+
+  if (serveDelay > 0) serveDelay -= dt;
+  else {
+    // Varios sub-pasos: a velocidades altas la pelota ya no atraviesa las palas
+    const mx = ball.velocityX * k, my = ball.velocityY * k;
+    const n = Math.max(1, Math.ceil(Math.max(Math.abs(mx), Math.abs(my)) / 6));
+    for (let i = 0; i < n; i++) if (stepBall(mx / n, my / n)) break;
+  }
+
+  particles.forEach(p => { p.x += p.vx * k; p.y += p.vy * k; p.life -= .02 * k; });
+  particles = particles.filter(p => p.life > 0);
+}
+
+function checkWin() {
+  if (player1.score < WIN_SCORE && player2.score < WIN_SCORE) return;
+  gameRunning = false;
+  const p1 = player1.score >= WIN_SCORE;
+  $('winner-text').textContent = (p1 ? 'JUGADOR 1' : mode === 1 ? 'CPU' : 'JUGADOR 2') + ' GANA!';
+  $('winner-text').style.color = p1 ? '#0f0' : '#f0f';
+  $('game-over-screen').classList.add('active');
+}
+
+function draw() {
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.setLineDash([10, 10]); ctx.strokeStyle = '#333';
+  ctx.beginPath(); ctx.moveTo(W / 2, 0); ctx.lineTo(W / 2, H); ctx.stroke(); ctx.setLineDash([]);
+  ctx.shadowBlur = 15;
+  [player1, player2].forEach(p => { ctx.shadowColor = p.color; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, p.width, p.height); });
+  ctx.shadowBlur = 0;
+  ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+  particles.forEach(p => { ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, Math.PI * 2); ctx.fill(); });
+  ctx.globalAlpha = 1;
+}
+
+function loop(now) {
+  const dt = Math.min((now - lastTime) / 1000, .033); lastTime = now;
+  update(dt); draw();
+  if (gameRunning) animationId = requestAnimationFrame(loop);
+}
+
+function setDifficulty(d) {
+  difficulty = d;
+  $('btn-easy').classList.toggle('active', d === 'easy');
+  $('btn-hard').classList.toggle('active', d === 'hard');
+}
+function startGame(m) {
+  cancelAnimationFrame(animationId); mode = m;
+  $('menu-screen').classList.remove('active'); $('game-over-screen').classList.remove('active');
+  initGame(); gameRunning = true; lastTime = performance.now();
+  animationId = requestAnimationFrame(loop);
+}
+function showMenu() {
+  cancelAnimationFrame(animationId); gameRunning = false;
+  $('game-over-screen').classList.remove('active'); $('menu-screen').classList.add('active'); draw();
+}
+
+$('btn-easy').onclick = () => setDifficulty('easy');
+$('btn-hard').onclick = () => setDifficulty('hard');
+$('btn-one').onclick = () => startGame(1);
+$('btn-two').onclick = () => startGame(2);
+$('btn-menu').onclick = showMenu;
+$('btn-restart').onclick = () => startGame(mode);
+
+initGame(); resize();
+</script>
+</body>
+</html>
